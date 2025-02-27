@@ -20,6 +20,24 @@
     <button id="resetButton">Reiniciar</button>
 
     <script>
+                import { initializeApp } from "firebase/app";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyBdpllrJMyygX7rnghGoCg2C48g-R1wmvI",
+  authDomain: "chess-app-4d926.firebaseapp.com",
+  databaseURL: "https://console.firebase.google.com/u/0/project/chess-app-4d926/firestore/databases/-default-/data",
+  projectId: "chess-app-4d926",
+  storageBucket: "chess-app-4d926.firebasestorage.app",
+  messagingSenderId: "352952439002",
+  appId: "1:352952439002:web:9673d5bc928bdd9b0d95e3"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+        
         let tg = window.Telegram.WebApp;
         tg.expand(); // Expande o Mini-App no Telegram
 
