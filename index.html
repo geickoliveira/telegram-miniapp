@@ -3,34 +3,70 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Jogo de Xadrez Multiplayer</title>
+    <title>XADREZ MULTIPLAYER</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-	<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
     <style>
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Arial', sans-serif;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
+            justify-content: flex-start;
             height: 100vh;
             margin: 0;
-            background-color: #f0f0f0;
+            background-color: #1e1e1e;
+            color: white;
+            padding: 20px;
+            box-sizing: border-box;
         }
         h1 {
             margin-bottom: 20px;
+            font-size: 24px;
+            color: #ffffff;
+        }
+        #controls {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        #gameIdInput {
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #444;
+            border-radius: 5px;
+            background-color: #2e2e2e;
+            color: white;
+            width: 200px;
+        }
+        #joinGameButton, #resetButton, #betButton {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #0078d7;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        #joinGameButton:hover, #resetButton:hover, #betButton:hover {
+            background-color: #005f99;
         }
         #board {
             display: grid;
-            grid-template-columns: repeat(8, 60px);
-            grid-template-rows: repeat(8, 60px);
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr);
             gap: 2px;
-            border: 2px solid #333;
+            border: 2px solid #444;
+            width: 90vw;
+            max-width: 400px;
+            aspect-ratio: 1;
+            margin: 0 auto;
         }
         .square {
-            width: 60px;
-            height: 60px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -48,25 +84,63 @@
             font-size: 40px;
             cursor: grab;
         }
+        .selected {
+            border: 2px solid red;
+        }
+        .valid-move {
+            background-color: rgba(0, 255, 0, 0.3);
+        }
         #resetButton {
             margin-top: 20px;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background-color: #2e2e2e;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .modal button {
+            margin: 10px;
             padding: 10px 20px;
             font-size: 16px;
             cursor: pointer;
-            background-color: #333;
+            background-color: #0078d7;
             color: white;
             border: none;
             border-radius: 5px;
-        }
-        #resetButton:hover {
-            background-color: #555;
         }
     </style>
 </head>
 <body>
     <h1>Jogo de Xadrez Multiplayer</h1>
+    <div id="controls">
+        <input type="text" id="gameIdInput" placeholder="Código da partida">
+        <button id="joinGameButton">Entrar na Partida</button>
+        <button id="betButton">Apostar 10 Moedas</button>
+    </div>
     <div id="board"></div>
-    <button id="resetButton">Reiniciar</button>
+    <button id="resetButton">Reiniciar Jogo</button>
+
+    <!-- Modal de Aposta -->
+    <div id="betModal" class="modal">
+        <div class="modal-content">
+            <p>Você tem <span id="balance">100</span> moedas.</p>
+            <p>Deseja apostar 10 moedas?</p>
+            <button id="confirmBet">Confirmar</button>
+            <button id="cancelBet">Cancelar</button>
+        </div>
+    </div>
 
     <script>
         document.addEventListener("DOMContentLoaded", function() {
@@ -79,7 +153,6 @@
                 messagingSenderId: "352952439002",
                 appId: "1:352952439002:web:9673d5bc928bdd9b0d95e3"
             };
-
             if (!firebase.apps.length) {
                 firebase.initializeApp(firebaseConfig);
             }
@@ -87,97 +160,155 @@
             const tg = window.Telegram.WebApp;
             tg.expand();
 
-            const boardElement = document.getElementById('board');
+            let playerId = tg.initDataUnsafe?.user?.id || Math.random().toString(36).substr(2, 9);
+            let gameId = null;
+            let currentPlayer = null;
+            let gameRef = null;
+            let turnRef = null;
+            let betAmount = 10;
             let selectedPiece = null;
-            let selectedSquare = null;
-            let gameRef = db.ref('games/default');
-            let turnRef = gameRef.child('turn');
-            let currentPlayer = 'white';
+            let validMoves = [];
+            let balance = 100; // Saldo simulado do jogador
 
-            // Estado inicial do tabuleiro
-            const initialBoard = {
-                "0": ["♜", "♞", "♝", "♛", "♚", "♝", "♞", "♜"],
-                "1": ["♟", "♟", "♟", "♟", "♟", "♟", "♟", "♟"],
-                "2": ["", "", "", "", "", "", "", ""],
-                "3": ["", "", "", "", "", "", "", ""],
-                "4": ["", "", "", "", "", "", "", ""],
-                "5": ["", "", "", "", "", "", "", ""],
-                "6": ["♙", "♙", "♙", "♙", "♙", "♙", "♙", "♙"],
-                "7": ["♖", "♘", "♗", "♕", "♔", "♗", "♘", "♖"]
-            };
+            const boardElement = document.getElementById("board");
+            const betModal = document.getElementById("betModal");
+            const confirmBetButton = document.getElementById("confirmBet");
+            const cancelBetButton = document.getElementById("cancelBet");
+            const balanceElement = document.getElementById("balance");
 
-            function createBoard(boardState) {
-                boardElement.innerHTML = '';
+            // Inicializa o tabuleiro
+            function initializeBoard() {
+                const initialBoard = [
+                    ['♜', '♞', '♝', '♛', '♚', '♝', '♞', '♜'],
+                    ['♟', '♟', '♟', '♟', '♟', '♟', '♟', '♟'],
+                    ['', '', '', '', '', '', '', ''],
+                    ['', '', '', '', '', '', '', ''],
+                    ['', '', '', '', '', '', '', ''],
+                    ['', '', '', '', '', '', '', ''],
+                    ['♙', '♙', '♙', '♙', '♙', '♙', '♙', '♙'],
+                    ['♖', '♘', '♗', '♕', '♔', '♗', '♘', '♖']
+                ];
+                renderBoard(initialBoard);
+            }
+
+            // Renderiza o tabuleiro
+            function renderBoard(board) {
+                boardElement.innerHTML = "";
                 for (let row = 0; row < 8; row++) {
                     for (let col = 0; col < 8; col++) {
-                        const square = document.createElement('div');
-                        square.classList.add('square', (row + col) % 2 === 0 ? 'light' : 'dark');
+                        const square = document.createElement("div");
+                        square.classList.add("square");
+                        square.classList.add((row + col) % 2 === 0 ? "light" : "dark");
                         square.dataset.row = row;
                         square.dataset.col = col;
-                        
-                        const piece = boardState[row][col];
-                        if (piece) {
-                            const pieceElement = document.createElement('div');
-                            pieceElement.classList.add('piece');
-                            pieceElement.textContent = piece;
-                            pieceElement.dataset.row = row;
-                            pieceElement.dataset.col = col;
-                            square.appendChild(pieceElement);
+                        if (board[row][col]) {
+                            const piece = document.createElement("div");
+                            piece.classList.add("piece");
+                            piece.textContent = board[row][col];
+                            square.appendChild(piece);
                         }
-
-                        square.addEventListener('click', () => handleSquareClick(row, col));
+                        square.addEventListener("click", () => handleSquareClick(row, col));
                         boardElement.appendChild(square);
                     }
                 }
             }
 
+            // Lida com o clique em uma casa do tabuleiro
             function handleSquareClick(row, col) {
-                turnRef.once('value', snapshot => {
-                    const turn = snapshot.val();
-                    if (turn !== currentPlayer) return; // Bloqueia movimentos do jogador errado
+                if (selectedPiece) {
+                    movePiece(row, col);
+                } else {
+                    selectPiece(row, col);
+                }
+            }
 
-                    const square = document.querySelector(`.square[data-row="${row}"][data-col="${col}"]`);
-                    const piece = square.querySelector('.piece');
-                    
-                    if (selectedPiece) {
-                        const fromRow = parseInt(selectedPiece.dataset.row);
-                        const fromCol = parseInt(selectedPiece.dataset.col);
-                        
-                        gameRef.child(`board/${row}/${col}`).set(selectedPiece.textContent);
-                        gameRef.child(`board/${fromRow}/${fromCol}`).set("");
-                        selectedPiece = null;
-                        selectedSquare.classList.remove('selected');
-                        selectedSquare = null;
-                        
-                        turnRef.set(turn === 'white' ? 'black' : 'white');
-                    } else if (piece) {
-                        selectedPiece = piece;
-                        selectedSquare = square;
-                        square.classList.add('selected');
-                    }
+            // Seleciona uma peça
+            function selectPiece(row, col) {
+                const piece = getPieceAt(row, col);
+                if (piece && isValidPlayerPiece(piece)) {
+                    selectedPiece = { row, col };
+                    validMoves = getValidMoves(row, col);
+                    highlightValidMoves();
+                }
+            }
+
+            // Move uma peça
+            function movePiece(row, col) {
+                if (isValidMove(row, col)) {
+                    const piece = getPieceAt(selectedPiece.row, selectedPiece.col);
+                    const newBoard = JSON.parse(JSON.stringify(currentBoard));
+                    newBoard[row][col] = piece;
+                    newBoard[selectedPiece.row][selectedPiece.col] = "";
+                    renderBoard(newBoard);
+                    selectedPiece = null;
+                    validMoves = [];
+                    clearHighlights();
+                }
+            }
+
+            // Verifica se o movimento é válido
+            function isValidMove(row, col) {
+                return validMoves.some(move => move.row === row && move.col === col);
+            }
+
+            // Obtém os movimentos válidos (simulação básica)
+            function getValidMoves(row, col) {
+                const piece = getPieceAt(row, col);
+                const moves = [];
+                if (piece === "♙") {
+                    moves.push({ row: row - 1, col });
+                }
+                return moves;
+            }
+
+            // Destaca os movimentos válidos
+            function highlightValidMoves() {
+                validMoves.forEach(move => {
+                    const square = document.querySelector(`.square[data-row='${move.row}'][data-col='${move.col}']`);
+                    square.classList.add("valid-move");
                 });
             }
 
-            function resetBoard() {
-                gameRef.child('board').set(initialBoard);
-                turnRef.set('white');
+            // Remove os destaques dos movimentos válidos
+            function clearHighlights() {
+                document.querySelectorAll(".valid-move").forEach(square => {
+                    square.classList.remove("valid-move");
+                });
             }
 
-            // Inicializa o tabuleiro com o estado inicial
-            gameRef.child('board').once('value', snapshot => {
-                if (!snapshot.exists()) {
-                    resetBoard();
+            // Obtém a peça em uma determinada posição
+            function getPieceAt(row, col) {
+                return currentBoard[row][col];
+            }
+
+            // Verifica se a peça pertence ao jogador atual
+            function isValidPlayerPiece(piece) {
+                return currentPlayer === "white" ? piece === piece.toUpperCase() : piece === piece.toLowerCase();
+            }
+
+            // Lógica de aposta
+            document.getElementById("betButton").addEventListener("click", () => {
+                betModal.style.display = "flex";
+                balanceElement.textContent = balance;
+            });
+
+            confirmBetButton.addEventListener("click", () => {
+                if (balance >= betAmount) {
+                    balance -= betAmount;
+                    balanceElement.textContent = balance;
+                    betModal.style.display = "none";
+                    alert("Aposta realizada com sucesso!");
+                } else {
+                    alert("Saldo insuficiente!");
                 }
             });
 
-            gameRef.child('board').on('value', snapshot => {
-                if (snapshot.exists()) {
-                    const boardState = snapshot.val();
-                    createBoard(boardState);
-                }
+            cancelBetButton.addEventListener("click", () => {
+                betModal.style.display = "none";
             });
 
-            document.getElementById('resetButton').addEventListener('click', resetBoard);
+            // Inicializa o jogo
+            initializeBoard();
         });
     </script>
 </body>
