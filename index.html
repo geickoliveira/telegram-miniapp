@@ -42,7 +42,7 @@
             color: white;
             width: 200px;
         }
-        #joinGameButton, #resetButton, #betButton {
+        #joinGameButton, #resetButton, #betButton, #rankingButton {
             padding: 10px 20px;
             font-size: 16px;
             cursor: pointer;
@@ -52,7 +52,7 @@
             border-radius: 5px;
             transition: background-color 0.3s;
         }
-        #joinGameButton:hover, #resetButton:hover, #betButton:hover {
+        #joinGameButton:hover, #resetButton:hover, #betButton:hover, #rankingButton:hover {
             background-color: #005f99;
         }
         #board {
@@ -73,6 +73,7 @@
             font-size: 24px;
             cursor: pointer;
             user-select: none;
+            transition: background-color 0.3s;
         }
         .square.light {
             background-color: #f0d9b5;
@@ -83,12 +84,16 @@
         .piece {
             font-size: 40px;
             cursor: grab;
+            transition: transform 0.3s;
         }
         .selected {
             border: 2px solid red;
         }
         .valid-move {
             background-color: rgba(0, 255, 0, 0.3);
+        }
+        .capture-move {
+            background-color: rgba(255, 0, 0, 0.3);
         }
         #resetButton {
             margin-top: 20px;
@@ -109,6 +114,8 @@
             padding: 20px;
             border-radius: 10px;
             text-align: center;
+            max-width: 90%;
+            width: 300px;
         }
         .modal button {
             margin: 10px;
@@ -120,17 +127,35 @@
             border: none;
             border-radius: 5px;
         }
+        #score {
+            margin-top: 20px;
+            font-size: 18px;
+        }
+        #rankingButton {
+            margin-top: 10px;
+        }
+        .ranking-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .ranking-list li {
+            padding: 10px;
+            border-bottom: 1px solid #444;
+        }
     </style>
 </head>
 <body>
-    <h1>Jogo de Xadrez Multiplayer</h1>
+    <h1>XADREZ MULTIPLAYER</h1>
     <div id="controls">
         <input type="text" id="gameIdInput" placeholder="Código da partida">
         <button id="joinGameButton">Entrar na Partida</button>
         <button id="betButton">Apostar 10 Moedas</button>
+        <button id="rankingButton">Ver Ranking</button>
     </div>
     <div id="board"></div>
     <button id="resetButton">Reiniciar Jogo</button>
+    <div id="score">Pontuação: 0</div>
 
     <!-- Modal de Aposta -->
     <div id="betModal" class="modal">
@@ -139,6 +164,15 @@
             <p>Deseja apostar 10 moedas?</p>
             <button id="confirmBet">Confirmar</button>
             <button id="cancelBet">Cancelar</button>
+        </div>
+    </div>
+
+    <!-- Modal de Ranking -->
+    <div id="rankingModal" class="modal">
+        <div class="modal-content">
+            <h2>Ranking</h2>
+            <ul class="ranking-list" id="rankingList"></ul>
+            <button id="closeRanking">Fechar</button>
         </div>
     </div>
 
@@ -169,12 +203,19 @@
             let selectedPiece = null;
             let validMoves = [];
             let balance = 100; // Saldo simulado do jogador
+            let score = 0; // Pontuação do jogador
+            let ranking = []; // Lista de ranking
 
             const boardElement = document.getElementById("board");
             const betModal = document.getElementById("betModal");
             const confirmBetButton = document.getElementById("confirmBet");
             const cancelBetButton = document.getElementById("cancelBet");
+            const rankingModal = document.getElementById("rankingModal");
+            const rankingList = document.getElementById("rankingList");
+            const rankingButton = document.getElementById("rankingButton");
+            const closeRankingButton = document.getElementById("closeRanking");
             const balanceElement = document.getElementById("balance");
+            const scoreElement = document.getElementById("score");
 
             // Inicializa o tabuleiro
             function initializeBoard() {
@@ -227,7 +268,7 @@
                 const piece = getPieceAt(row, col);
                 if (piece && isValidPlayerPiece(piece)) {
                     selectedPiece = { row, col };
-                    validMoves = getValidMoves(row, col);
+                    validMoves = getValidMoves(row, col, piece);
                     highlightValidMoves();
                 }
             }
@@ -237,13 +278,82 @@
                 if (isValidMove(row, col)) {
                     const piece = getPieceAt(selectedPiece.row, selectedPiece.col);
                     const newBoard = JSON.parse(JSON.stringify(currentBoard));
+                    const capturedPiece = newBoard[row][col];
+                    if (capturedPiece) {
+                        updateScore(capturedPiece);
+                    }
                     newBoard[row][col] = piece;
                     newBoard[selectedPiece.row][selectedPiece.col] = "";
                     renderBoard(newBoard);
+                    animateMove(selectedPiece, { row, col });
                     selectedPiece = null;
                     validMoves = [];
                     clearHighlights();
+                    checkForCheckmate();
                 }
+            }
+
+            // Animação de movimento
+            function animateMove(from, to) {
+                const fromSquare = document.querySelector(`.square[data-row='${from.row}'][data-col='${from.col}']`);
+                const toSquare = document.querySelector(`.square[data-row='${to.row}'][data-col='${to.col}']`);
+                const piece = fromSquare.querySelector(".piece");
+                if (piece) {
+                    piece.style.transform = "scale(1.2)";
+                    setTimeout(() => {
+                        piece.style.transform = "scale(1)";
+                    }, 300);
+                }
+            }
+
+            // Atualiza a pontuação
+            function updateScore(piece) {
+                const pieceValues = {
+                    '♟': 1, '♙': 1,
+                    '♞': 3, '♘': 3,
+                    '♝': 3, '♗': 3,
+                    '♜': 5, '♖': 5,
+                    '♛': 9, '♕': 9,
+                    '♚': 0, '♔': 0
+                };
+                score += pieceValues[piece] || 0;
+                scoreElement.textContent = `Pontuação: ${score}`;
+                updateRanking(playerId, score);
+            }
+
+            // Atualiza o ranking
+            function updateRanking(playerId, score) {
+                const playerIndex = ranking.findIndex(player => player.id === playerId);
+                if (playerIndex !== -1) {
+                    ranking[playerIndex].score = score;
+                } else {
+                    ranking.push({ id: playerId, score });
+                }
+                ranking.sort((a, b) => b.score - a.score);
+                saveRanking();
+            }
+
+            // Salva o ranking no Firebase
+            function saveRanking() {
+                db.ref("ranking").set(ranking);
+            }
+
+            // Carrega o ranking do Firebase
+            function loadRanking() {
+                db.ref("ranking").on("value", snapshot => {
+                    ranking = snapshot.val() || [];
+                    renderRanking();
+                });
+            }
+
+            // Renderiza o ranking
+            function renderRanking() {
+                rankingList.innerHTML = "";
+                ranking.forEach((player, index) => {
+                    const li = document.createElement("li");
+                    li.textContent = `${index + 1}. Jogador ${player.id}: ${player.score} pontos`;
+                    rankingList.appendChild(li);
+                });
             }
 
             // Verifica se o movimento é válido
@@ -251,39 +361,76 @@
                 return validMoves.some(move => move.row === row && move.col === col);
             }
 
-            // Obtém os movimentos válidos (simulação básica)
-            function getValidMoves(row, col) {
-                const piece = getPieceAt(row, col);
+            // Obtém os movimentos válidos para uma peça
+            function getValidMoves(row, col, piece) {
                 const moves = [];
-                if (piece === "♙") {
-                    moves.push({ row: row - 1, col });
+                switch (piece.toLowerCase()) {
+                    case '♟': // Peão
+                        moves.push({ row: row - 1, col });
+                        if (row === 6) moves.push({ row: row - 2, col });
+                        break;
+                    case '♜': // Torre
+                        for (let i = 1; i < 8; i++) {
+                            if (row + i < 8) moves.push({ row: row + i, col });
+                            if (row - i >= 0) moves.push({ row: row - i, col });
+                            if (col + i < 8) moves.push({ row, col: col + i });
+                            if (col - i >= 0) moves.push({ row, col: col - i });
+                        }
+                        break;
+                    case '♞': // Cavalo
+                        const knightMoves = [
+                            { row: row + 2, col: col + 1 },
+                            { row: row + 2, col: col - 1 },
+                            { row: row - 2, col: col + 1 },
+                            { row: row - 2, col: col - 1 },
+                            { row: row + 1, col: col + 2 },
+                            { row: row + 1, col: col - 2 },
+                            { row: row - 1, col: col + 2 },
+                            { row: row - 1, col: col - 2 }
+                        ];
+                        moves.push(...knightMoves.filter(move => move.row >= 0 && move.row < 8 && move.col >= 0 && move.col < 8));
+                        break;
+                    case '♝': // Bispo
+                        for (let i = 1; i < 8; i++) {
+                            if (row + i < 8 && col + i < 8) moves.push({ row: row + i, col: col + i });
+                            if (row + i < 8 && col - i >= 0) moves.push({ row: row + i, col: col - i });
+                            if (row - i >= 0 && col + i < 8) moves.push({ row: row - i, col: col + i });
+                            if (row - i >= 0 && col - i >= 0) moves.push({ row: row - i, col: col - i });
+                        }
+                        break;
+                    case '♛': // Rainha
+                        getValidMoves(row, col, '♜');
+                        getValidMoves(row, col, '♝');
+                        break;
+                    case '♚': // Rei
+                        for (let i = -1; i <= 1; i++) {
+                            for (let j = -1; j <= 1; j++) {
+                                if (i === 0 && j === 0) continue;
+                                if (row + i >= 0 && row + i < 8 && col + j >= 0 && col + j < 8) {
+                                    moves.push({ row: row + i, col: col + j });
+                                }
+                            }
+                        }
+                        break;
                 }
-                return moves;
+                return moves.filter(move => !isFriendlyPiece(move.row, move.col));
             }
 
-            // Destaca os movimentos válidos
-            function highlightValidMoves() {
-                validMoves.forEach(move => {
-                    const square = document.querySelector(`.square[data-row='${move.row}'][data-col='${move.col}']`);
-                    square.classList.add("valid-move");
-                });
-            }
-
-            // Remove os destaques dos movimentos válidos
-            function clearHighlights() {
-                document.querySelectorAll(".valid-move").forEach(square => {
-                    square.classList.remove("valid-move");
-                });
-            }
-
-            // Obtém a peça em uma determinada posição
-            function getPieceAt(row, col) {
-                return currentBoard[row][col];
+            // Verifica se a peça na posição é amiga
+            function isFriendlyPiece(row, col) {
+                const piece = getPieceAt(row, col);
+                return piece && isValidPlayerPiece(piece);
             }
 
             // Verifica se a peça pertence ao jogador atual
             function isValidPlayerPiece(piece) {
                 return currentPlayer === "white" ? piece === piece.toUpperCase() : piece === piece.toLowerCase();
+            }
+
+            // Verifica se há xeque-mate
+            function checkForCheckmate() {
+                // Lógica de xeque-mate (simplificada)
+                alert("Xeque-mate! Fim de jogo.");
             }
 
             // Lógica de aposta
@@ -307,8 +454,19 @@
                 betModal.style.display = "none";
             });
 
+            // Lógica de ranking
+            rankingButton.addEventListener("click", () => {
+                rankingModal.style.display = "flex";
+                renderRanking();
+            });
+
+            closeRankingButton.addEventListener("click", () => {
+                rankingModal.style.display = "none";
+            });
+
             // Inicializa o jogo
             initializeBoard();
+            loadRanking();
         });
     </script>
 </body>
