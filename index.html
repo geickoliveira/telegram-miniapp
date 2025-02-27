@@ -3,8 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Jogo de Xadrez</title>
+    <title>Jogo de Xadrez Multiplayer</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+	<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -62,125 +64,121 @@
     </style>
 </head>
 <body>
-    <h1>Jogo de Xadrez</h1>
+    <h1>Jogo de Xadrez Multiplayer</h1>
     <div id="board"></div>
     <button id="resetButton">Reiniciar</button>
 
     <script>
-	        import { initializeApp } from "firebase/app";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
+        document.addEventListener("DOMContentLoaded", function() {
+            const firebaseConfig = {
+                apiKey: "AIzaSyBdpllrJMyygX7rnghGoCg2C48g-R1wmvI",
+                authDomain: "chess-app-4d926.firebaseapp.com",
+                databaseURL: "https://chess-app-4d926-default-rtdb.firebaseio.com/",
+                projectId: "chess-app-4d926",
+                storageBucket: "chess-app-4d926.appspot.com",
+                messagingSenderId: "352952439002",
+                appId: "1:352952439002:web:9673d5bc928bdd9b0d95e3"
+            };
 
-// Your web app's Firebase configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyBdpllrJMyygX7rnghGoCg2C48g-R1wmvI",
-  authDomain: "chess-app-4d926.firebaseapp.com",
-  projectId: "chess-app-4d926",
-  storageBucket: "chess-app-4d926.firebasestorage.app",
-  messagingSenderId: "352952439002",
-  appId: "1:352952439002:web:9673d5bc928bdd9b0d95e3"
-};
+            if (!firebase.apps.length) {
+                firebase.initializeApp(firebaseConfig);
+            }
+            const db = firebase.database();
+            const tg = window.Telegram.WebApp;
+            tg.expand();
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-	
-        let tg = window.Telegram.WebApp;
-        tg.expand();
+            const boardElement = document.getElementById('board');
+            let selectedPiece = null;
+            let selectedSquare = null;
+            let gameRef = db.ref('games/default');
+            let turnRef = gameRef.child('turn');
+            let currentPlayer = 'white';
 
-        const boardElement = document.getElementById('board');
-        let selectedPiece = null;
-        let selectedSquare = null;
+            // Estado inicial do tabuleiro
+            const initialBoard = {
+                "0": ["♜", "♞", "♝", "♛", "♚", "♝", "♞", "♜"],
+                "1": ["♟", "♟", "♟", "♟", "♟", "♟", "♟", "♟"],
+                "2": ["", "", "", "", "", "", "", ""],
+                "3": ["", "", "", "", "", "", "", ""],
+                "4": ["", "", "", "", "", "", "", ""],
+                "5": ["", "", "", "", "", "", "", ""],
+                "6": ["♙", "♙", "♙", "♙", "♙", "♙", "♙", "♙"],
+                "7": ["♖", "♘", "♗", "♕", "♔", "♗", "♘", "♖"]
+            };
 
-        const initialPieces = [
-            ['♜', '♞', '♝', '♛', '♚', '♝', '♞', '♜'],
-            ['♟', '♟', '♟', '♟', '♟', '♟', '♟', '♟'],
-            ['', '', '', '', '', '', '', ''],
-            ['', '', '', '', '', '', '', ''],
-            ['', '', '', '', '', '', '', ''],
-            ['', '', '', '', '', '', '', ''],
-            ['♙', '♙', '♙', '♙', '♙', '♙', '♙', '♙'],
-            ['♖', '♘', '♗', '♕', '♔', '♗', '♘', '♖']
-        ];
+            function createBoard(boardState) {
+                boardElement.innerHTML = '';
+                for (let row = 0; row < 8; row++) {
+                    for (let col = 0; col < 8; col++) {
+                        const square = document.createElement('div');
+                        square.classList.add('square', (row + col) % 2 === 0 ? 'light' : 'dark');
+                        square.dataset.row = row;
+                        square.dataset.col = col;
+                        
+                        const piece = boardState[row][col];
+                        if (piece) {
+                            const pieceElement = document.createElement('div');
+                            pieceElement.classList.add('piece');
+                            pieceElement.textContent = piece;
+                            pieceElement.dataset.row = row;
+                            pieceElement.dataset.col = col;
+                            square.appendChild(pieceElement);
+                        }
 
-        function createBoard() {
-            boardElement.innerHTML = '';
-            for (let row = 0; row < 8; row++) {
-                for (let col = 0; col < 8; col++) {
-                    const square = document.createElement('div');
-                    square.classList.add('square', (row + col) % 2 === 0 ? 'light' : 'dark');
-                    square.dataset.row = row;
-                    square.dataset.col = col;
-                    
-                    const piece = initialPieces[row][col];
-                    if (piece) {
-                        const pieceElement = document.createElement('div');
-                        pieceElement.classList.add('piece');
-                        pieceElement.textContent = piece;
-                        pieceElement.dataset.row = row;
-                        pieceElement.dataset.col = col;
-                        square.appendChild(pieceElement);
+                        square.addEventListener('click', () => handleSquareClick(row, col));
+                        boardElement.appendChild(square);
                     }
-
-                    square.addEventListener('click', () => handleSquareClick(row, col));
-                    boardElement.appendChild(square);
                 }
             }
-        }
 
-        function isValidMove(piece, fromRow, fromCol, toRow, toCol) {
-            const rowDiff = Math.abs(toRow - fromRow);
-            const colDiff = Math.abs(toCol - fromCol);
-            switch (piece) {
-                case '♙': // Peão Branco
-                    return fromCol === toCol && (toRow - fromRow === -1 || (fromRow === 6 && toRow - fromRow === -2));
-                case '♟': // Peão Preto
-                    return fromCol === toCol && (toRow - fromRow === 1 || (fromRow === 1 && toRow - fromRow === 2));
-                case '♖': case '♜': // Torre
-                    return fromRow === toRow || fromCol === toCol;
-                case '♘': case '♞': // Cavalo
-                    return (rowDiff === 2 && colDiff === 1) || (rowDiff === 1 && colDiff === 2);
-                case '♗': case '♝': // Bispo
-                    return rowDiff === colDiff;
-                case '♕': case '♛': // Rainha
-                    return rowDiff === colDiff || fromRow === toRow || fromCol === toCol;
-                case '♔': case '♚': // Rei
-                    return rowDiff <= 1 && colDiff <= 1;
-                default:
-                    return false;
+            function handleSquareClick(row, col) {
+                turnRef.once('value', snapshot => {
+                    const turn = snapshot.val();
+                    if (turn !== currentPlayer) return; // Bloqueia movimentos do jogador errado
+
+                    const square = document.querySelector(`.square[data-row="${row}"][data-col="${col}"]`);
+                    const piece = square.querySelector('.piece');
+                    
+                    if (selectedPiece) {
+                        const fromRow = parseInt(selectedPiece.dataset.row);
+                        const fromCol = parseInt(selectedPiece.dataset.col);
+                        
+                        gameRef.child(`board/${row}/${col}`).set(selectedPiece.textContent);
+                        gameRef.child(`board/${fromRow}/${fromCol}`).set("");
+                        selectedPiece = null;
+                        selectedSquare.classList.remove('selected');
+                        selectedSquare = null;
+                        
+                        turnRef.set(turn === 'white' ? 'black' : 'white');
+                    } else if (piece) {
+                        selectedPiece = piece;
+                        selectedSquare = square;
+                        square.classList.add('selected');
+                    }
+                });
             }
-        }
 
-        function handleSquareClick(row, col) {
-            const square = document.querySelector(`.square[data-row="${row}"][data-col="${col}"]`);
-            const piece = square.querySelector('.piece');
-            
-            if (selectedPiece) {
-                const fromRow = parseInt(selectedPiece.dataset.row);
-                const fromCol = parseInt(selectedPiece.dataset.col);
-                const pieceType = selectedPiece.textContent;
-                
-                if (isValidMove(pieceType, fromRow, fromCol, row, col)) {
-                    if (piece) piece.remove();
-                    selectedPiece.dataset.row = row;
-                    selectedPiece.dataset.col = col;
-                    square.appendChild(selectedPiece);
+            function resetBoard() {
+                gameRef.child('board').set(initialBoard);
+                turnRef.set('white');
+            }
+
+            // Inicializa o tabuleiro com o estado inicial
+            gameRef.child('board').once('value', snapshot => {
+                if (!snapshot.exists()) {
+                    resetBoard();
                 }
-                selectedPiece = null;
-                selectedSquare.classList.remove('selected');
-                selectedSquare = null;
-            } else if (piece) {
-                selectedPiece = piece;
-                selectedSquare = square;
-                square.classList.add('selected');
-            }
-        }
+            });
 
-        function resetBoard() {
-            createBoard();
-        }
+            gameRef.child('board').on('value', snapshot => {
+                if (snapshot.exists()) {
+                    const boardState = snapshot.val();
+                    createBoard(boardState);
+                }
+            });
 
-        createBoard();
-        document.getElementById('resetButton').addEventListener('click', resetBoard);
+            document.getElementById('resetButton').addEventListener('click', resetBoard);
+        });
     </script>
 </body>
 </html>
